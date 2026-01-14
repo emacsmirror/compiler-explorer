@@ -292,7 +292,7 @@ int foo(boost::any a) { return 1; }")
                             (ce-test--compilation-result)))))
 
 (ert-deftest ce-tools ()
-  (ce-test--with-session "C++" nil
+  (ce-test--with-session "C++" "gsnapshot"
     (ce-test--insert "#include <map>
 #include <string>
 
@@ -302,6 +302,7 @@ int foo(  std::string   a) {     return    1   ; }")
     (ce-add-tool "iwyu")
     (ce-add-tool "clangtidytrunk")
     (ce-add-tool "clangquerytrunk")
+    (ce-add-tool "llvm-covtrunk")
     (ce-set-tool-args "clangtidytrunk" "--help")
     (ce-set-tool-input "clangquerytrunk" "m functionDecl().bind(\"x\")")
 
@@ -327,7 +328,12 @@ int foo(std::string a) { return 1; }
         (format ce--tool-buffer-format "clangquerytrunk")
       (goto-char (point-min))
       (should (search-forward "Match #4:"))
-      (should (re-search-forward "note:.* binds here")))))
+      (should (re-search-forward "note:.* binds here")))
+    (with-current-buffer (format ce--tool-buffer-format "llvm-covtrunk")
+      (goto-char (point-min))
+      ;; Only supported in clang compilers
+      (should (re-search-forward
+               "Error: The current .* does not support this tool.")))))
 
 (ert-deftest ce-creates-temp-project ()
   (let ((ce-make-temp-file t)

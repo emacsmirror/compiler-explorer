@@ -678,15 +678,26 @@ The tool buffer is current when this hook runs.")
           (compilation-parse-errors (point-min) (point-max)))))
 
     ;; Update tools
-    (pcase-dolist ((map :id :stderr :stdout) (seq-into tools 'list))
-      (when-let* ((toolbuf
-                   (cadr (assoc id ce--selected-tools))))
-        (with-temp-buffer
-          (seq-do (pcase-lambda ((map :text)) (insert text "\n"))
-                  (seq-concatenate 'list stdout stderr))
-          (ce--replace-buffer-contents toolbuf
-                                       (current-buffer))
-          (with-current-buffer toolbuf
+    (let ((all-tools (copy-tree ce--selected-tools)))
+      (pcase-dolist ((map :id :stderr :stdout) (seq-into tools 'list))
+        (when-let* ((toolbuf
+                     (cadr (assoc id ce--selected-tools))))
+          (with-temp-buffer
+            (seq-do (pcase-lambda ((map :text)) (insert text "\n"))
+                    (seq-concatenate 'list stdout stderr))
+            (ce--replace-buffer-contents toolbuf
+                                         (current-buffer))
+            (setq all-tools (assoc-delete-all id all-tools))
+
+            (with-current-buffer toolbuf
+              (run-hook-with-args 'ce-post-tool-update-hook id)))))
+      (pcase-dolist (`(,id ,buf ,_) all-tools)
+        (when (buffer-live-p buf)
+          (with-current-buffer buf
+            (let ((inhibit-read-only t))
+              (erase-buffer)
+              (insert "Error: The current language/")
+              (insert "compiler does not support this tool.\n"))
             (run-hook-with-args 'ce-post-tool-update-hook id)))))
 
     (with-current-buffer compiler
