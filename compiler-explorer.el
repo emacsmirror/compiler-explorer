@@ -610,6 +610,15 @@ contents are replaced destructively and point is not preserved."
           (erase-buffer)
           (insert-buffer-substring source))))))
 
+(defvar ce-post-compilation-hook nil
+  "Hook called after recompilation is performed.
+The ASM buffer is current when this hook runs.")
+
+(defvar ce-post-tool-update-hook nil
+  "Hook called after a tool's buffer is updated.
+The hook is called with a single argument that contains the tool ID.
+The tool buffer is current when this hook runs.")
+
 (defvar ce-document-opcodes)
 (defvar ce-source-to-asm-mappings)
 (defun ce--handle-compilation-response (response)
@@ -661,8 +670,17 @@ contents are replaced destructively and point is not preserved."
           (seq-do (pcase-lambda ((map :text)) (insert text "\n"))
                   (seq-concatenate 'list stdout stderr))
           (ce--replace-buffer-contents toolbuf
-                                       (current-buffer))))))
+                                       (current-buffer))
+          (with-current-buffer toolbuf
+            (run-hook-with-args 'ce-post-tool-update-hook id)))))
+
+    (with-current-buffer compiler
+      (run-hooks 'ce-post-compilation-hook)))
   (force-mode-line-update t))
+
+(defvar ce-post-execution-hook nil
+  "Hook called after execution is performed.
+The execution buffer is current when this hook runs.")
 
 (defun ce--handle-compiler-with-no-execution ()
   "Update the execution output buffer with info about unsupported compiler.
@@ -693,7 +711,8 @@ output buffer."
                                  'keymap keymap
                                  'help-echo "Click to set")
                      "\n")))
-         (ce--compilers))))))
+         (ce--compilers))))
+    (run-hooks 'ce-post-execution-hook)))
 
 (defun ce--handle-execution-response (response)
   "Handle execution response contained in RESPONSE."
@@ -712,7 +731,8 @@ output buffer."
                   "\n")
           (insert (format "Program exited with code %s" code))
           (ce--replace-buffer-contents buf (current-buffer)))
-        (ansi-color-apply-on-region (point-min) (point-max))))))
+        (ansi-color-apply-on-region (point-min) (point-max)))
+      (run-hooks 'ce-post-execution-hook))))
 
 
 ;; UI
@@ -1139,9 +1159,16 @@ example/default is not saved."
          (not (or (string-empty-p string)
                   (string= string (string-trim example)))))))
 
+(defvar ce-pre-cleanup-hook nil
+  "Hook called before session teardown.")
+
 (defun ce--cleanup-1 (&optional skip-save-session)
   "Kill current session.
 If SKIP-SAVE-SESSION is non-nil, don't attempt to save the last session."
+  (when (ce--active-p)
+    (with-demoted-errors "compiler-explorer--cleanup: %s"
+      (run-hooks 'ce-pre-cleanup-hook )))
+
   (when (and (not skip-save-session) (ce--session-savable-p))
     (push (ce--current-session) ce--session-ring))
 
@@ -1869,6 +1896,11 @@ It must have previously been added with
 
 (defvar ce-dedicate-windows)
 
+(defvar ce-tool-added-hook nil
+  "Hook called after a tool is added.
+Each function is called with one argument, the tool id.
+The tool's buffer is active when this hook runs.")
+
 (defun ce-add-tool (id)
   "Add tool ID to the current compilation."
   (interactive
@@ -1899,12 +1931,18 @@ It must have previously been added with
     (with-current-buffer buf
       (ce--local-mode)
       (setq buffer-read-only t)
-      (setq buffer-undo-list t)))
+      (setq buffer-undo-list t)
+
+      (run-hook-with-args 'ce-tool-added-hook id)))
 
   (ce--request-async)
 
   ;; Repopulate list of tools to remove
   (ce--define-menu))
+
+(defvar ce-tool-removed-hook nil
+  "Hook called after a tool is removed.
+Each function is called with one argument, the tool id.")
 
 (defun ce-remove-tool (id)
   "Remove tool ID from the current compilation."
@@ -1935,7 +1973,9 @@ It must have previously been added with
 
   (ce--request-async)
   ;; Repopulate list of tools to remove
-  (ce--define-menu))
+  (ce--define-menu)
+
+  (run-hook-with-args 'ce-tool-removed-hook id))
 
 (defvar ce--tool-context nil
   "Let-bound variable that contains the tool id value for various commands.
