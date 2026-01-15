@@ -24,8 +24,8 @@ FILL_COMMENTARY := --eval '(progn                                               
 	(delete-trailing-whitespace)                                             \
 	(setq fill-column 74)                                                    \
 	(narrow-to-region (search-forward "Commentary:")                         \
-	  (search-forward "Code:"))                                              \
-	  (goto-char (point-min))                                                \
+	                  (search-forward "Code:"))                              \
+	(goto-char (point-min))                                                  \
 	(while (re-search-forward "^;; *." nil t)                                \
 	  (goto-char (line-beginning-position))                                  \
 	  (if (looking-at-p "^;;  +")                                            \
@@ -95,7 +95,7 @@ sandbox: ${ELC}
 readme-to-el:
 	sed README.md -r                                                         \
 	    -e 's/^### (.*) #*$$/\n;; *** \1/'   `# Rewrite headers`             \
-	    -e 's/^## (.*) #*$$/\n;;; ** \1/'    `# Rewrite headers`             \
+	    -e 's/^## (.*) #*$$/\n;; ** \1/'     `# Rewrite headers`             \
 	    -e 's/^#+ (.*) #*$$/\n;; * \1/'      `# Rewrite headers`             \
 	    -e '/^.*License.*/,/^<!/d'           `# Delete license`              \
 	    -e '/^<!--/d'                        `# Remove comments`             \
