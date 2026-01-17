@@ -2405,7 +2405,8 @@ by `compiler-explorer-make-link', or created by the website itself."
               (unless (string-empty-p stdin)
                 (ce-set-tool-input id stdin)))
             tools)
-    (ce-set-compiler-args options)
+    (when options
+      (ce-set-compiler-args options))
     (when arguments
       (ce-set-execution-args arguments))
     (when stdin

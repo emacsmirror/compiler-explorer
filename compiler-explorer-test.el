@@ -606,6 +606,22 @@ int main(int argc, char** argv) {
       (should (equal (caddar ce--selected-tools) "--help"))
       (should (bufferp (cadar ce--selected-tools))))))
 
+(ert-deftest ce-restoring-from-shortlink-missing-compiler ()
+  (let* ((url "https://godbolt.org/z/K35K4Kf4c")
+         (ce-new-session-hook nil)
+         (ce--session-ring nil))
+    (ce-restore-from-link url)
+    (with-current-buffer ce--buffer
+      (should (equal (buffer-string) "// Empty"))
+      (should (equal (plist-get ce--language-data :name) "C++"))
+      (should (equal (plist-get ce--compiler-data :id)
+                     (plist-get ce--language-data :defaultCompiler)))
+      (should (equal ce--compiler-arguments ""))
+      (should (equal ce--execution-arguments ""))
+      (should (equal ce--execution-input ""))
+      (should (equal ce--selected-libraries nil))
+      (should (equal ce--selected-tools nil)))))
+
 (ert-deftest ce-mappings ()
   (ce-test--with-session "C++" nil
     (with-current-buffer ce--buffer
