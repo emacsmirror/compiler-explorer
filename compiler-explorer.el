@@ -2376,15 +2376,17 @@ by `compiler-explorer-make-link', or created by the website itself."
                 (if (string-prefix-p "/z/" filename)
                     (substring filename 3)
                   (error "%s is not a valid compiler-explorer shortlink" url)))
-               ((map (:sessions (seq session)))
+               ((map (:sessions (seq session other-session)))
                 (ce--request-sync (format "Fetching state from %s" url)
                                   (ce--url "shortlinkinfo" shortlink)))
                ((map :language
                      :source
                      (:compilers
-                      (seq (map (:id compiler-id) :options :libs :tools)))
+                      (seq (map (:id compiler-id) :options :libs :tools)
+                           other-compiler))
                      (:executors
-                      (seq (map :arguments :stdin))))
+                      (seq (map :arguments :stdin)
+                           other-executor)))
                 session)
                (ce--inhibit-request t))
     (ce-new-session language compiler-id)
@@ -2410,7 +2412,28 @@ by `compiler-explorer-make-link', or created by the website itself."
       (ce-set-input stdin))
     (with-current-buffer ce--buffer
       (erase-buffer)
-      (insert source)))
+      (insert source))
+    (when other-session
+      (display-warning
+       'compiler-explorer
+       (concat "The shortlink contains multiple sessions,"
+               " but it's only possible to restore one. "
+               "Ignoring the other sessions.")
+       :warning))
+    (when other-compiler
+      (display-warning
+       'compiler-explorer
+       (concat "The shortlink contains multiple compilers,"
+               " but it's only possible to restore one. "
+               "Ignoring the other compilers.")
+       :warning))
+    (when other-executor
+      (display-warning
+       'compiler-explorer
+       (concat "The shortlink contains multiple executors,"
+               " but it's only possible to restore one. "
+               "Ignoring the other executors.")
+       :warning)))
   (ce--request-async))
 
 (defvar ce-new-session-hook '(ce-layout)
