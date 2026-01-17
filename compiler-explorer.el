@@ -1241,20 +1241,45 @@ If SKIP-SAVE-SESSION is non-nil, don't attempt to save the last session."
 
 ;; Source<->ASM overlays
 
-(defun ce--overlay-bg-base (percent)
-  "Get the color for overlay background, PERCENT darker from default."
+(defun ce--overlay-bg-base (percent &optional lighter)
+  "Get the color for overlay background, PERCENT darker from default.
+If LIGHTER is non-nil then the color is lighter instead."
   (when-let* ((bg (face-background 'default nil t)))
     (unless (string= bg "unspecified-bg")
-      (color-darken-name bg percent))))
+      (pcase-let*
+          ((`(,h ,s ,l) (apply #'color-rgb-to-hsl (color-name-to-rgb bg)))
+           (`(_ _ ,l2)  (if lighter (color-lighten-hsl h s l percent)
+                          (color-darken-hsl h s l percent))))
+        (when (= l l2)
+          (setq l2 (+ l (* 0.01 percent (if lighter 1 -1)))))
+        (apply #'color-rgb-to-hex (color-hsl-to-rgb h s l2))))))
 
 (defcustom ce-overlays '(46 28 17 10 6)
-  "List of faces or specs used for ASM<->source mappings.
-Each element can either be a face or a number.  If it's a face,
-it is used as one of the faces for overlays.  If it's a number, a
-face is synthesized for the overlay, with the background color
-being the background color of the default face, darkened by this
-many percent."
-  :type '(repeat (choice face (integer :tag "Darken percentage"))))
+  "List for controlling how source<->ASM mapping overlays are displayed.
+
+For each source line that maps to an ASM block, a single element is
+taken from this list.  The element says how to display the overlay for
+the mapping.  When the end of the list is reached, the elements are
+taken from the beginning again until all source lines are processed.
+
+Each element can be one of:
+
+A face - this face will be used for the overlay.
+
+A number - a face is synthesized for the overlay, with the background
+color being the background color of the default face, darkened by this
+many percent.
+
+A cons (\\='lighten . NUMBER) - similarly, a face is synthesized, but
+the background color is lighter by this many percent, not darker.
+
+Note: if the default face has unspecified background color, then the
+overlays will be invisible if using the darken/lighten option."
+  :type '(repeat
+          (choice face
+                  (integer :tag "Darken percentage")
+                  (cons :tag "Lighten percentage" (const lighten)
+                        integer))))
 
 (defface ce-cursor-entered
   `((t :weight bold))
@@ -1312,8 +1337,11 @@ line."
                    ('left (ce--cursor-left ovs face)))))))))
     (pcase-dolist (`(,line-num . ,points-in-asm) regions)
       (setq face (car faces))
-      (when (integerp face)
-        (setq face `(:background ,(ce--overlay-bg-base face) :extend t)))
+      (pcase face
+        ((pred integerp)
+         (setq face `(:background ,(ce--overlay-bg-base face) :extend t)))
+        (`(,'lighten . ,(and (pred integerp) value))
+         (setq face `(:background ,(ce--overlay-bg-base value t) :extend t))))
       (setq faces (append (cdr faces) (list face)))
       (setq asm-overlays nil source-overlay nil)
 
