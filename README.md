@@ -109,7 +109,7 @@ arguments that are set for the current session.  This requires that the
 ## License ##
 
 ```
-Copyright (C) 2020-2025 Michał Krzywkowski
+Copyright (C) 2020-2026 Michał Krzywkowski
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
