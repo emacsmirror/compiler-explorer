@@ -410,6 +410,9 @@ STDIN is a string.")
 (defvar ce--execution-input ""
   "Stdin for the program executed.")
 
+(defvar ce--recompile-timer nil
+  "Timer for recompilation.")
+
 (defvar ce--last-compilation-request nil
   "Last request (response) for current compilation.")
 
@@ -493,6 +496,18 @@ with `json-parse', and a message is displayed.")
   "If non-nil, inhibit making the async compilation/execution request.
 This can be temporarily let-bound to defer making async requests
 when multiple functions try to do it in a block of code.")
+
+(defun ce--schedule-compilation (&rest _args)
+  "Schedule recompilation after buffer is modified."
+  (when ce--recompile-timer
+    (cancel-timer ce--recompile-timer))
+  (setq ce--recompile-timer (run-with-timer 0.5 nil #'ce--request-async))
+
+  ;; Prevent 'kill anyway?' when killing the buffer.
+  (restore-buffer-modified-p nil)
+
+  ;; Set the header line status to "Wait..."
+  (force-mode-line-update t))
 
 (defun ce--request-async-1 ()
   "Subr of `compiler-explorer--request-async'."
@@ -736,8 +751,6 @@ output buffer."
 
 
 ;; UI
-
-(defvar ce--recompile-timer)
 
 (defun ce--header-line-format-common ()
   "Get the mode line template used in compiler explorer mode."
@@ -1104,7 +1117,6 @@ output buffer."
 
 (defvar ce--session-ring)
 (defvar ce-mode)
-(defvar ce--recompile-timer)
 (defvar ce--cleaning-up nil)
 
 (defun ce--tool-id ()
@@ -1151,7 +1163,7 @@ WINDOW if nil defaults to the frame's root window."
   "Return non-nil if the current session should be saved.
 A session that has no source code or is the same as an
 example/default is not saved."
-  (and (ce--active-p)
+  (and (ce-active-p)
        (let ((example
               (or (plist-get ce--language-data :example) ""))
              (string (with-current-buffer ce--buffer
@@ -1165,7 +1177,7 @@ example/default is not saved."
 (defun ce--cleanup-1 (&optional skip-save-session)
   "Kill current session.
 If SKIP-SAVE-SESSION is non-nil, don't attempt to save the last session."
-  (when (ce--active-p)
+  (when (ce-active-p)
     (with-demoted-errors "compiler-explorer--cleanup: %s"
       (run-hooks 'ce-pre-cleanup-hook )))
 
@@ -1538,7 +1550,7 @@ It must have been created with `compiler-explorer--current-session'."
 (defun ce--save-sessions ()
   "Save all sessions to a file."
   (remove-hook 'kill-emacs-hook #'ce--save-sessions)
-  (let ((current-session (and (ce--active-p) (ce--current-session))))
+  (let ((current-session (and (ce-active-p) (ce--current-session))))
     (when current-session
       (push current-session ce--session-ring))
     (with-temp-file ce-sessions-file
@@ -1551,26 +1563,17 @@ It must have been created with `compiler-explorer--current-session'."
          (current-buffer))))))
 
 
-;; User commands & modes
+;; User commands & functions
 
-(defun ce--active-p ()
+(defun ce-active-p ()
   "Return non-nil if we're in a `compiler-explorer' session."
   (bufferp (get-buffer ce--buffer)))
 
-(defvar ce--recompile-timer nil
-  "Timer for recompilation.")
-
-(defun ce--after-change (&rest _args)
-  "Schedule recompilation after buffer is modified."
-  (when ce--recompile-timer
-    (cancel-timer ce--recompile-timer))
-  (setq ce--recompile-timer (run-with-timer 0.5 nil #'ce--request-async))
-
-  ;; Prevent 'kill anyway?' when killing the buffer.
-  (restore-buffer-modified-p nil)
-
-  ;; Set the header line status to "Wait..."
-  (force-mode-line-update t))
+(defun ce-current-session ()
+  "Return current session as a plist."
+  (unless (ce-active-p)
+    (error "Not in a `compiler-explorer' session"))
+  (ce--current-session))
 
 (defvar ce-mode-map
   (let ((map (make-sparse-keymap)))
@@ -1591,7 +1594,7 @@ It must have been created with `compiler-explorer--current-session'."
   (pcase (buffer-name)
     ((pred (equal ce--buffer))
      (setq header-line-format `(:eval (ce--header-line-format-source)))
-     (add-hook 'after-change-functions #'ce--after-change nil t))
+     (add-hook 'after-change-functions #'ce--schedule-compilation nil t))
     ((pred (equal ce--compiler-buffer))
      (setq header-line-format `(:eval (ce--header-line-format-compiler)))
      (setq truncate-lines t)           ;Make the ASM view more like godbolt.org
@@ -1631,7 +1634,7 @@ It must have been created with `compiler-explorer--current-session'."
 (defun ce-show-output ()
   "Show compiler stdout&stderr buffer."
   (interactive)
-  (unless (ce--active-p)
+  (unless (ce-active-p)
     (error "Not in a `compiler-explorer' session"))
   (display-buffer ce--output-buffer))
 
@@ -1667,7 +1670,7 @@ source code block.
 With a numeric prefix argument, jumps to the Nth ASM block for
 the same source line."
   (interactive "P")
-  (unless (ce--active-p)
+  (unless (ce-active-p)
     (error "Not in a `compiler-explorer' session"))
   (if-let* ((ov (cl-find-if
                  (lambda (ov) (overlay-get ov 'ce--overlay))
@@ -1717,13 +1720,13 @@ compiler-explore API and navigates to it.  Interactively, opcode is the
 symbol at point.  With a prefix argument, a symbol is read from the
 minibuffer."
   (interactive
-   (and (or (ce--active-p) (user-error "Not in a `compiler-explorer' session"))
+   (and (or (ce-active-p) (user-error "Not in a `compiler-explorer' session"))
         (list
          (if current-prefix-arg
              (read-from-minibuffer "Show opcode documentation: " )
            (or (thing-at-point 'symbol)
                (user-error "There is no symbol at point"))))))
-  (unless (ce--active-p)
+  (unless (ce-active-p)
     (error "Not in a `compiler-explorer' session"))
   (unless (ce--asm-opcode-doc
            (plist-get ce--compiler-data :instructionSet)
@@ -1734,10 +1737,10 @@ minibuffer."
 
 (defun ce-set-input (input)
   "Set the input to use as stdin for execution to INPUT, a string."
-  (interactive (list (if (ce--active-p)
+  (interactive (list (if (ce-active-p)
                          (read-from-minibuffer "Stdin: " ce--execution-input)
                        (user-error "Not in a `compiler-explorer' session"))))
-  (unless (ce--active-p)
+  (unless (ce-active-p)
     (error "Not in a `compiler-explorer' session"))
   (setq ce--execution-input input)
   (ce--request-async)
@@ -1748,13 +1751,13 @@ minibuffer."
 
 (defun ce-set-compiler-args (args)
   "Set compilation arguments to the string ARGS and recompile."
-  (interactive (list (if (ce--active-p)
+  (interactive (list (if (ce-active-p)
                          (read-from-minibuffer
                           "Compiler arguments: "
                           ce--compiler-arguments
                           nil nil 'ce-set-compiler-args-history)
                        (user-error "Not in a `compiler-explorer' session"))))
-  (unless (ce--active-p)
+  (unless (ce-active-p)
     (error "Not in a `compiler-explorer' session"))
   (setq ce--compiler-arguments args)
   (ce--request-async)
@@ -1762,11 +1765,11 @@ minibuffer."
 
 (defun ce-set-execution-args (args)
   "Set execution arguments to the string ARGS and recompile."
-  (interactive (list (if (ce--active-p)
+  (interactive (list (if (ce-active-p)
                          (read-from-minibuffer "Execution arguments: "
                                                ce--execution-arguments)
                        (user-error "Not in a `compiler-explorer' session"))))
-  (unless (ce--active-p)
+  (unless (ce-active-p)
     (error "Not in a `compiler-explorer' session"))
   (setq ce--execution-arguments args)
   (ce--request-async)
@@ -1780,7 +1783,7 @@ execution."
   (interactive
    (list
     (and
-     (or (ce--active-p) (user-error "Not in a `compiler-explorer' session"))
+     (or (ce-active-p) (user-error "Not in a `compiler-explorer' session"))
      (or
       (get-text-property (point) 'ce-compiler-id)
       (let* ((lang ce--language-data)
@@ -1805,7 +1808,7 @@ execution."
                          compilers nil t
                          (car (cl-find default compilers
                                        :test #'string= :key #'cadr))))))))
-  (unless (ce--active-p)
+  (unless (ce-active-p)
     (error "Not in a `compiler-explorer' session"))
   (pcase-let*
       (((map (:id lang-id) :defaultCompiler) ce--language-data)
@@ -1831,7 +1834,7 @@ execution."
 (defun ce-add-library (id version-id)
   "Add library ID with VERSION-ID to current compilation."
   (interactive
-   (let* ((lang (or (and (ce--active-p)
+   (let* ((lang (or (and (ce-active-p)
                          (plist-get ce--language-data :id))
                     (user-error "Not in a `compiler-explorer' session")))
           (candidates (cl-reduce #'nconc
@@ -1849,7 +1852,7 @@ execution."
                   (null (assoc id ce--selected-libraries)))
                 t)))
      (cdr (assoc res candidates))))
-  (unless (ce--active-p)
+  (unless (ce-active-p)
     (error "Not in a `compiler-explorer' session"))
   (let* ((libentry
           (cl-find id (ce--libraries (plist-get ce--language-data :id))
@@ -1874,7 +1877,7 @@ execution."
 It must have previously been added with
 `compiler-explorer-add-library'."
   (interactive
-   (if (ce--active-p)
+   (if (ce-active-p)
        (let* ((libs-by-name
                (mapcar (pcase-lambda (`(,_ ,_ ,entry))
                          (cons (plist-get entry :name) entry))
@@ -1885,7 +1888,7 @@ It must have previously been added with
               (entry (cdr (assoc choice libs-by-name))))
          (list (plist-get entry :id)))
      (user-error "Not in a `compiler-explorer' session")))
-  (unless (ce--active-p)
+  (unless (ce-active-p)
     (error "Not in a `compiler-explorer' session"))
   (setq ce--selected-libraries
         (delq (assoc id ce--selected-libraries) ce--selected-libraries))
@@ -1904,7 +1907,7 @@ The tool's buffer is active when this hook runs.")
 (defun ce-add-tool (id)
   "Add tool ID to the current compilation."
   (interactive
-   (let* ((lang (or (and (ce--active-p)
+   (let* ((lang (or (and (ce-active-p)
                          (plist-get ce--language-data :id))
                     (user-error "Not in a `compiler-explorer' session")))
           (candidates (mapcar #'car (ce--tools lang)))
@@ -1914,7 +1917,7 @@ The tool's buffer is active when this hook runs.")
                 (lambda (id) (null (assoc id ce--selected-tools)))
                 t)))
      (list res)))
-  (unless (ce--active-p)
+  (unless (ce-active-p)
     (error "Not in a `compiler-explorer' session"))
 
   (when (assoc id ce--selected-tools)
@@ -1947,12 +1950,12 @@ Each function is called with one argument, the tool id.")
 (defun ce-remove-tool (id)
   "Remove tool ID from the current compilation."
   (interactive
-   (if (ce--active-p)
+   (if (ce-active-p)
        (let ((tools (mapcar #'car ce--selected-tools)))
          (list (completing-read "Remove tool: " tools nil t nil nil
                                 (ce--tool-id))))
      (user-error "Not in a `compiler-explorer' session")))
-  (unless (ce--active-p)
+  (unless (ce-active-p)
     (error "Not in a `compiler-explorer' session"))
 
   (if-let* ((entry (cdr (assoc id ce--selected-tools)))
@@ -1989,7 +1992,7 @@ want to perform some command for a specific tool.")
   "Set the arguments of tool with ID to string ARGS."
   (interactive
    (and
-    (or (ce--active-p)
+    (or (ce-active-p)
         (user-error "Not in a `compiler-explorer' session"))
     (let* ((tools (or (mapcar #'car ce--selected-tools)
                       (user-error "No tools selected")))
@@ -2004,7 +2007,7 @@ want to perform some command for a specific tool.")
                   (caddr (assoc tool ce--selected-tools))
                   nil nil 'ce-set-tool-args-history)))
       (list tool args))))
-  (unless (ce--active-p)
+  (unless (ce-active-p)
     (error "Not in a `compiler-explorer' session"))
 
   (if-let* ((tool-data (assoc id ce--selected-tools)))
@@ -2019,7 +2022,7 @@ want to perform some command for a specific tool.")
   "Set the standard input of tool with ID to string INPUT."
   (interactive
    (and
-    (or (ce--active-p) (user-error "Not in a `compiler-explorer' session"))
+    (or (ce-active-p) (user-error "Not in a `compiler-explorer' session"))
     (let* ((tools (or (mapcar #'car ce--selected-tools)
                       (user-error "No tools selected")))
            (lang (plist-get ce--language-data :id))
@@ -2035,7 +2038,7 @@ want to perform some command for a specific tool.")
       (list tool (read-from-minibuffer
                   (format "Set input for tool '%s': " tool)
                   (cadddr (assoc tool ce--selected-tools)))))))
-  (unless (ce--active-p)
+  (unless (ce-active-p)
     (error "Not in a `compiler-explorer' session"))
 
   (if-let* ((tool-data (assoc id ce--selected-tools)))
@@ -2110,16 +2113,16 @@ Interactively, discard the current session.  With a prefix
 argument, prompt for sessions to discard."
   (interactive
    (cond
-    ((and (not (ce--active-p)) (null ce--session-ring))
+    ((and (not (ce-active-p)) (null ce--session-ring))
      (user-error "No sessions"))
-    ((and (ce--active-p)
+    ((and (ce-active-p)
           (not current-prefix-arg))
      (list nil t))
     (t (let* ((sessions-alist (ce--session-alist))
               (choices
                (cl-loop
                 with sessions = (append (list '(""))
-                                        (and (ce--active-p)
+                                        (and (ce-active-p)
                                              (list '("*current*")))
                                         (ce--session-alist))
                 while (cdr sessions)
@@ -2138,7 +2141,7 @@ argument, prompt for sessions to discard."
                   choices)
           t)))))
   (let ((current (or (null indices) (memq nil indices))))
-    (when (and current (not (ce--active-p)))
+    (when (and current (not (ce-active-p)))
       (error "Not in a `compiler-explorer' session"))
     (if (and interactive (not (yes-or-no-p
                                (if (or (null indices) (equal indices '(nil)))
@@ -2207,7 +2210,7 @@ LAYOUT must be as described in `compiler-explorer-layouts'."
     (or (and (numberp current-prefix-arg) current-prefix-arg)
         (when (eq last-command #'ce-layout)
           (1+ ce--last-layout)))))
-  (unless (ce--active-p)
+  (unless (ce-active-p)
     (error "Not in a `compiler-explorer' session"))
   (cl-labels
       ((override-window-buffer
@@ -2272,12 +2275,12 @@ LAYOUT must be as described in `compiler-explorer-layouts'."
 Interactively, this prompts for an example to load for the current language."
   (interactive
    (list
-    (and (or (ce--active-p)
+    (and (or (ce-active-p)
              (user-error "Not in a `compiler-explorer' session"))
          (completing-read "Load example: "
                           (ce--examples (plist-get ce--language-data :id))
                           nil t))))
-  (unless (ce--active-p)
+  (unless (ce-active-p)
     (error "Not in a `compiler-explorer' session"))
   (if-let* ((lang (plist-get ce--language-data :id))
             (all (ce--examples lang))
@@ -2291,7 +2294,7 @@ Interactively, this prompts for an example to load for the current language."
   "Save URL to current session in the kill ring and return it.
 With an optional prefix argument OPEN, open that link in a browser."
   (interactive "P")
-  (unless (ce--active-p)
+  (unless (ce-active-p)
     (error "Not in a `compiler-explorer' session"))
   (let* ((compiler
           `(
@@ -2494,7 +2497,7 @@ compiler."
 (defun ce-exit ()
   "Kill the current session."
   (interactive)
-  (unless (ce--active-p)
+  (unless (ce-active-p)
     (error "Not in a `compiler-explorer' session"))
   (ce--cleanup))
 
