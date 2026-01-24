@@ -690,6 +690,8 @@ The tool buffer is current when this hook runs.")
             (setq all-tools (assoc-delete-all id all-tools))
 
             (with-current-buffer toolbuf
+              (let ((inhibit-read-only t))
+                (ansi-color-apply-on-region (point-min) (point-max)))
               (run-hook-with-args 'ce-post-tool-update-hook id)))))
       (pcase-dolist (`(,id ,buf ,_) all-tools)
         (when (buffer-live-p buf)
