@@ -692,6 +692,10 @@ The tool buffer is current when this hook runs.")
             (with-current-buffer toolbuf
               (let ((inhibit-read-only t))
                 (ansi-color-apply-on-region (point-min) (point-max)))
+              (when (derived-mode-p 'compilation-mode)
+                (with-demoted-errors "compilation-parse-errors: %s"
+                  (let ((inhibit-read-only t))
+                    (compilation-parse-errors (point-min) (point-max)))))
               (run-hook-with-args 'ce-post-tool-update-hook id)))))
       (pcase-dolist (`(,id ,buf ,_) all-tools)
         (when (buffer-live-p buf)
@@ -1650,6 +1654,8 @@ It must have been created with `compiler-explorer--current-session'."
     ((pred (equal ce--exe-output-buffer))
      (setq header-line-format `(:eval (ce--header-line-format-executor))))
     ((guard (ce--tool-id))
+     (setq-local compilation-parse-errors-filename-function
+                 #'ce--compilation-parse-errors-filename)
      (setq header-line-format `(:eval (ce--header-line-format-tool))))))
 
 (defun ce--local-mode-maybe-enable ()
@@ -1973,6 +1979,7 @@ The tool's buffer is active when this hook runs.")
       (when (and (windowp window) ce-dedicate-windows)
         (set-window-dedicated-p window t)))
     (with-current-buffer buf
+      (compilation-mode)
       (ce--local-mode)
       (setq buffer-read-only t)
       (setq buffer-undo-list t)
