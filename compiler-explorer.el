@@ -1437,9 +1437,9 @@ When the session is killed, the temporary directory is deleted."
     (filename)
   "Wrapper for parsing FILENAME in compiler output buffer.
 This allows navigating to errors in source code from that buffer."
-  (when (string-match-p ce--filename-regexp filename)
-    (file-name-nondirectory
-     (buffer-file-name (get-buffer ce--buffer)))))
+  (and-let* ((fname (buffer-file-name (get-buffer ce--buffer)))
+             ((string-match-p ce--filename-regexp filename)))
+    (file-name-nondirectory fname)))
 
 (defcustom ce-document-opcodes t
   "If non-nil, provide documentation for opcodes in ASM buffers.
