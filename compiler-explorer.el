@@ -929,7 +929,7 @@ output buffer."
     (:eval (ce--header-line-format-common))
     " | "
     ,(propertize
-      (format "Tool: %s" (ce--tool-id))
+      (format "Tool: %s" (ce--tool-name (ce--tool-id)))
       'mouse-face 'header-line-highlight
       'keymap (let ((map (make-keymap))
                     (id (ce--tool-id)))
@@ -1063,7 +1063,7 @@ output buffer."
        (not (seq-empty-p (ce--tools (plist-get ce--language-data :id))))
        ,@(mapcar
           (pcase-lambda (`(,id . ,_))
-            (vector id
+            (vector (ce--tool-name id)
                     (lambda ()
                       (interactive)
                       (ce-add-tool id))
@@ -1074,14 +1074,15 @@ output buffer."
        :enable (not (null ce--selected-tools))
        ,@(mapcar
           (lambda (id)
-            (vector id (lambda () (interactive) (ce-remove-tool id))))
+            (vector (ce--tool-name id)
+                    (lambda () (interactive) (ce-remove-tool id))))
           (mapcar #'car ce--selected-tools)))
       ("Set tool arguments"
        :enable (not (null ce--selected-tools))
        ,@(mapcar
           (lambda (id)
             (vector
-             id
+             (ce--tool-name id)
              (lambda ()
                (interactive)
                (let ((ce--tool-context id))
@@ -1090,7 +1091,7 @@ output buffer."
       ("Set tool input"
        :enable (not (null ce--selected-tools))
        ,@(mapcar
-          (lambda (id) (vector id
+          (lambda (id) (vector (ce--tool-name id)
                                (lambda ()
                                  (interactive)
                                  (let ((ce--tool-context id))
@@ -1139,6 +1140,14 @@ output buffer."
 (defun ce--tool-id ()
   "Get the ID of the tool in the current buffer, or return nil."
   (car (cl-find (current-buffer) ce--selected-tools :key #'cadr)))
+
+(defun ce--tool-name (id)
+  "Return the name of a tool with given ID."
+  (let* ((lang (or (and (ce-active-p)
+                        (plist-get ce--language-data :id))
+                   (error "Not in a `compiler-explorer' session")))
+         (tool-data (map-elt (ce--tools lang) id)))
+    (or (plist-get tool-data :name) id)))
 
 (defun ce--window-layout (&optional window)
   "Get the window layout of WINDOW, suitable for `compiler-explorer-layout'.
@@ -1957,12 +1966,15 @@ The tool's buffer is active when this hook runs.")
    (let* ((lang (or (and (ce-active-p)
                          (plist-get ce--language-data :id))
                     (user-error "Not in a `compiler-explorer' session")))
-          (candidates (mapcar #'car (ce--tools lang)))
+          (candidates (mapcar
+                       (lambda (id) (cons (ce--tool-name id) id))
+                       (mapcar #'car (ce--tools lang))))
           (res (completing-read
                 "Add tool: " candidates
                 ;; Ignore tools that are already added.
                 (lambda (id) (null (assoc id ce--selected-tools)))
-                t)))
+                t))
+          (res (map-elt candidates res)))
      (list res)))
   (unless (ce-active-p)
     (error "Not in a `compiler-explorer' session"))
@@ -1971,7 +1983,7 @@ The tool's buffer is active when this hook runs.")
     (error "Tool %s already added" id))
 
   (let ((buf (generate-new-buffer
-              (format ce--tool-buffer-format id)))
+              (format ce--tool-buffer-format (ce--tool-name id))))
         window)
     (push (list id buf "" "") ce--selected-tools)
     (unless noninteractive
@@ -1999,9 +2011,12 @@ Each function is called with one argument, the tool id.")
   "Remove tool ID from the current compilation."
   (interactive
    (if (ce-active-p)
-       (let ((tools (mapcar #'car ce--selected-tools)))
-         (list (completing-read "Remove tool: " tools nil t nil nil
-                                (ce--tool-id))))
+       (let* ((candidates (mapcar
+                           (lambda (id) (cons (ce--tool-name id) id))
+                           (mapcar #'car ce--selected-tools)))
+              (res (completing-read "Remove tool: " candidates nil t))
+              (res (map-elt candidates res)))
+         (list res))
      (user-error "Not in a `compiler-explorer' session")))
   (unless (ce-active-p)
     (error "Not in a `compiler-explorer' session"))

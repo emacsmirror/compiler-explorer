@@ -307,29 +307,34 @@ int foo(  std::string   a) {     return    1   ; }")
     (ce-set-tool-input "clangquerytrunk" "m functionDecl().bind(\"x\")")
 
     (ce-test--wait)
-    (with-current-buffer (format ce--tool-buffer-format "clangformattrunk")
+    (with-current-buffer
+        (format ce--tool-buffer-format (ce--tool-name "clangformattrunk"))
       (should (string= "#include <map>
 #include <string>
 
 int foo(std::string a) { return 1; }
 "
                        (buffer-string))))
-    (with-current-buffer (format ce--tool-buffer-format "iwyu")
+    (with-current-buffer
+        (format ce--tool-buffer-format (ce--tool-name "iwyu"))
       (goto-char (point-min))
       (should (search-forward "should remove these lines:\n- #include <map> "))
       (should (search-forward "The full include-list for <source>:
 #include <string>  // for string\n---\n")))
     (with-current-buffer
-        (format ce--tool-buffer-format "clangtidytrunk")
+
+        (format ce--tool-buffer-format (ce--tool-name "clangtidytrunk"))
       (goto-char (point-min))
       (should
        (search-forward "USAGE: clang-tidy [options]")))
     (with-current-buffer
-        (format ce--tool-buffer-format "clangquerytrunk")
+
+        (format ce--tool-buffer-format (ce--tool-name "clangquerytrunk"))
       (goto-char (point-min))
       (should (search-forward "Match #4:"))
       (should (re-search-forward "note:.* binds here")))
-    (with-current-buffer (format ce--tool-buffer-format "llvm-covtrunk")
+    (with-current-buffer
+        (format ce--tool-buffer-format (ce--tool-name "llvm-covtrunk"))
       (goto-char (point-min))
       ;; Only supported in clang compilers
       (should (re-search-forward
@@ -431,7 +436,7 @@ int main(int argc, char** argv) {
     (should-not (buffer-live-p (get-buffer ce--output-buffer)))
     (should-not (buffer-live-p (get-buffer ce--exe-output-buffer)))
     (should-not (buffer-live-p
-                 (get-buffer "*compiler-explorer tool clangtidytrunk*")))
+                 (get-buffer (format ce--tool-buffer-format "Clang-Tidy"))))
     (should-not ce--language-data)
     (should-not ce--compiler-data)
     (should-not ce--selected-libraries)
@@ -451,7 +456,8 @@ int main(int argc, char** argv) {
     (should (string= "boost" (caar ce--selected-libraries)))
     (should (string= "174" (cadar ce--selected-libraries)))
     (should (buffer-live-p
-             (get-buffer "*compiler-explorer tool clangtidytrunk*")))))
+             (get-buffer (format ce--tool-buffer-format
+                                     (ce--tool-name "clangtidytrunk")))))))
 
 (ert-deftest ce-session-ring ()
   (let ((ce--session-ring nil)
