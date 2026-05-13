@@ -284,7 +284,8 @@ int foo(boost::any a) { return 1; }")
 
     (ce-add-library "boost" "174")
     (ce-test--wait)
-    (should (string-match-p ".*foo(boost::any).*:" (ce-test--compilation-result)))
+    (should
+     (string-match-p ".*foo(boost::any).*:" (ce-test--compilation-result)))
 
     (ce-remove-library "boost")
     (ce-test--wait)
