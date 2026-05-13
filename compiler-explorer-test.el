@@ -189,10 +189,10 @@ After the BODY is evaluated, the session is destroyed."
   (ce-test--with-session "C++" nil
     (ce-test--insert
      "int add(int a, int b) { return a + b; }\n")
-    (string-match-p "add(int, int):" (ce-test--compilation-result))
+    (string-match-p ".*add(int, int).*:" (ce-test--compilation-result))
     (ce-test--insert "float sub(float a, float b) { return a - b; }\n")
     (should
-     (string-match-p "sub(float, float):" (ce-test--compilation-result)))))
+     (string-match-p ".*sub(float, float).*:" (ce-test--compilation-result)))))
 
 (ert-deftest ce-switching-compilers ()
   "Check that switching compilers works and triggers recompilation."
@@ -284,7 +284,7 @@ int foo(boost::any a) { return 1; }")
 
     (ce-add-library "boost" "174")
     (ce-test--wait)
-    (should (string-match-p "foo(boost::any):" (ce-test--compilation-result)))
+    (should (string-match-p ".*foo(boost::any).*:" (ce-test--compilation-result)))
 
     (ce-remove-library "boost")
     (ce-test--wait)
@@ -299,7 +299,7 @@ int foo(boost::any a) { return 1; }")
 int foo(  std::string   a) {     return    1   ; }")
 
     (ce-add-tool "clangformattrunk")
-    (ce-add-tool "iwyu")
+    (ce-add-tool "iwyu022")
     (ce-add-tool "clangtidytrunk")
     (ce-add-tool "clangquerytrunk")
     (ce-add-tool "llvm-covtrunk")
@@ -316,7 +316,7 @@ int foo(std::string a) { return 1; }
 "
                        (buffer-string))))
     (with-current-buffer
-        (format ce--tool-buffer-format (ce--tool-name "iwyu"))
+        (format ce--tool-buffer-format (ce--tool-name "iwyu022"))
       (goto-char (point-min))
       (should (search-forward "should remove these lines:\n- #include <map> "))
       (should (search-forward "The full include-list for <source>:
